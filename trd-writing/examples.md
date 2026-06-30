@@ -79,7 +79,32 @@ OrderListPage  → FilterBar  ← 同类页面已使用
 
 ---
 
-## Step 4: TRD（精简版示例）
+## Step 3.5: 复杂度判定
+
+**判定结果：Simple**
+
+| 判定维度 | 情况 |
+|----------|------|
+| 涉及组件数 | 单个页面（UserListPage） |
+| 数据模型 | 无新增，复用 UserRole 枚举 |
+| 外部集成 | 无新增外部服务 |
+| 已有模式 | FilterBar 已有多处使用先例 |
+
+→ 选 **Simple 模式**，输出 §1-7 + §16-18。
+
+---
+
+## Step 4: TRD（按 Simple 模板输出）
+
+**输出路径**：`docs/plans/2026-06-30-user-role-filter-trd.md`
+**复杂度**：Simple
+**状态**：Draft → Confirmed
+
+### 1. 架构概览
+
+在 UserListPage 中集成已有的 FilterBar 通用组件，将筛选状态通过 URL query params 传递，复用 useUserList → userApi.fetchUsers → httpClient 的已有数据获取链路。整个过程不引入新组件、不修改通用组件、不新增数据模型。
+
+方案选择理由：ProductListPage 和 OrderListPage 已用相同方式集成 FilterBar，沿用已有模式保证概念一致性。
 
 ### 2. 现有代码依据
 
@@ -88,9 +113,12 @@ OrderListPage  → FilterBar  ← 同类页面已使用
 | FilterBar 组件 | src/components/FilterBar.tsx | 已有通用筛选栏，直接复用 |
 | UserRole 枚举 | src/types/user.ts:5 | 筛选选项的唯一数据源 |
 | useUserList hook | src/hooks/useUserList.ts | 数据获取层，需扩展参数 |
-| ProductListPage 参考 | src/pages/products/ | 同类页面已集成 FilterBar，参考其集成方式 |
+| ProductListPage 参考 | src/pages/products/ProductListPage.tsx | 同类页面已集成 FilterBar，参考其集成方式 |
 
 ### 3. 数据流设计
+
+**入口**：用户在 FilterBar 选择角色
+**数据结构**：`UserRole` 枚举值（来自 src/types/user.ts:5）
 
 ```
 [用户在 FilterBar 选择角色]
@@ -101,7 +129,31 @@ OrderListPage  → FilterBar  ← 同类页面已使用
           → [UserTable 渲染]
 ```
 
-### 4. 改动边界
+**出口**：UserTable 渲染筛选后的用户列表
+
+### 4. 技术选型
+
+| 维度 | 选择 | 理由 | 已有代码依据 |
+|------|------|------|-------------|
+| 筛选组件 | FilterBar | 已有通用组件 | src/components/FilterBar.tsx |
+| 状态传递 | URL query params | 与已有分页参数模式一致 | useUserList (params 模式) |
+| 数据获取 | useUserList → fetchUsers | 已有数据链路 | src/hooks/useUserList.ts |
+
+### 5. 关键决策
+
+**决策 1：筛选参数传递方式**
+- **决策**：通过 URL query params 传递 role 参数
+- **理由**：与已有分页参数（page, pageSize）传递方式一致，保持 URL 可分享、可回退
+- **备选方案**：组件内部 state — 弃用，因与已有分页参数模式不一致，且 URL 不可分享
+- **代码依据**：useUserList 已有 query param 解析逻辑
+
+**决策 2：FilterBar 集成方式**
+- **决策**：组合方式集成，不修改 FilterBar 源码
+- **理由**：FilterBar 是通用组件，在 ProductListPage/OrderListPage 中已稳定使用
+- **备选方案**：修改 FilterBar 增加角色专属逻辑 — 弃用，会破坏通用性，影响其他页面
+- **代码依据**：事实表 row 7，FilterBar 已被两处调用
+
+### 6. 改动边界
 
 **新增文件**：无
 
@@ -112,31 +164,72 @@ OrderListPage  → FilterBar  ← 同类页面已使用
 | src/api/userApi.ts | fetchUsers 参数增加 role | 透传到 API |
 | src/pages/users/UserListPage.tsx | 引入 FilterBar，连接状态 | 提供筛选交互 |
 
-### 5. 不做事项
-
-| 不做事项 | 拒绝理由 |
+**需关注但不改动的文件**：
+| 文件路径 | 关注原因 |
 |----------|----------|
-| 多条件组合筛选 | 本次需求仅角色单一维度 |
-| 筛选条件持久化到 URL 之外 | 当前 URL query 方案已满足需求 |
-| FilterBar 组件修改 | 通用组件，不应为单一页面定制 |
+| src/components/FilterBar.tsx | 确认其接口满足角色筛选需求 |
+| src/types/user.ts | 确认 UserRole 枚举值覆盖所有筛选选项 |
+
+### 7. 不做事项
+
+| 不做事项 | 拒绝理由 | 如果后续要做，前置条件 |
+|----------|----------|----------------------|
+| 多条件组合筛选 | 本次需求仅角色单一维度 | PRD 明确多条件需求后 |
+| 筛选条件持久化到 URL 之外 | URL query 方案已满足需求 | 出现跨页面筛选状态共享需求时 |
+| FilterBar 组件修改 | 通用组件，不应为单一页面定制 | 所有使用方达成一致后统一升级 |
+
+### 16. 风险与缓解
+
+| 风险 | 影响 | 可能性 | 缓解措施 |
+|------|------|--------|----------|
+| 破坏概念完整性 | 中 | 低 | FilterBar 复用方式与 ProductListPage 完全一致 |
+| 数据源分裂 | 低 | 低 | UserRole 枚举定义在唯一位置 src/types/user.ts |
+
+### 17. 验证方法
+
+**数据流断点检查**：
+| 检查点 | 预期行为 | 如何触发 |
+|--------|----------|----------|
+| FilterBar 渲染 | 角色选项来自 UserRole 枚举 | 打开 UserListPage |
+| URL 参数同步 | 选择角色后 URL 出现 ?role=xxx | 选择角色，观察地址栏 |
+| API 请求 | GET /api/users?role=xxx | 打开 Network 面板 |
+| 列表刷新 | 表格仅显示所选角色用户 | 切换角色选项 |
+
+**回归范围**：
+- 不受影响：UserTable 渲染、Pagination 分页、httpClient 请求封装
+- 重点回归：useUserList 的已有调用方（确认新增可选参数不影响已有行为）
+
+### 18. 确认清单
+
+- [x] 架构方案已确认
+- [x] 技术选型已确认（每项有代码依据）
+- [x] 每个设计决策都有事实表依据
+- [x] 数据流完整可追溯
+- [x] 改动边界精确到文件级别（3个修改，0个新增）
+- [x] 不做事项有明确理由
+- [x] 验证方法可执行、可复现
+- [x] 无破坏概念完整性的风险点
+
+**TRD 状态**：Draft → **Confirmed** ✅
 
 ---
 
 ## Step 5: 质量自检
 
 ```
-TRD 质量自检清单：
+Simple 模式自检：
 - [x] 每个设计决策在事实表中都有对应的代码依据？
-      → FilterBar 复用依据 rows 1,7；UserRole 依据 row 5
+      → FilterBar 复用依据 row 7；UserRole 依据 row 5；URL params 模式依据 row 2
 - [x] 数据流完整可追溯，入口→处理→出口无断点？
       → FilterBar → URL params → useUserList → fetchUsers → API → UserTable
-- [x] 改动边界精确到文件级别？
-      → 3 个文件修改，0 个新增文件
+- [x] 技术选型每项都有已有代码依据？
+      → 筛选组件/状态传递/数据获取均有事实表依据
+- [x] 改动边界精确到文件级别，没有模糊表述？
+      → 3 个文件修改，0 个新增
 - [x] 不做事项有明确理由？
-      → 见上表
+      → 3 项不做事项，每项有理由和前置条件
 - [x] 验证方法可执行、可复现？
-- [x] 新增代码与已有代码的交互方式是否明确？
-      → FilterBar 通过组合方式集成，useUserList 通过参数扩展
+      → 4 个数据流断点 + 回归范围明确
 - [x] 是否有破坏概念完整性的风险点？
       → 无，FilterBar 复用方式与 ProductListPage 完全一致
 ```
